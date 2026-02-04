@@ -1,225 +1,526 @@
 # Architectural Decisions & Patterns
 
 **Project**: Quiz Editor  
-**Last Updated**: 2025-02-03  
+**Last Updated**: 2025-02-04 (MAJOR ARCHITECTURE REVISION)  
 **Purpose**: Long-term architectural reference and established patterns
 
 ---
 
 ## Architecture Overview
 
-### System Design
+### Hub-Plugin Ecosystem Model
 
-```bash
-┌─────────────────────────────────────────┐
-│          Client (Next.js App)           │
-│  ┌─────────────────────────────────┐   │
-│  │   React Components (shadcn/ui)  │   │
-│  │   • BankList, QuestionEditor    │   │
-│  │   • Tiptap WYSIWYG              │   │
-│  └─────────────────────────────────┘   │
-│  ┌─────────────────────────────────┐   │
-│  │   State (Zustand + Immer)       │   │
-│  │   • Undo/redo history           │   │
-│  │   • Question editing state      │   │
-│  └─────────────────────────────────┘   │
-└────────────────┬────────────────────────┘
-                 │
-                 │ Server Actions
-                 │
-┌────────────────▼────────────────────────┐
-│       Next.js Server (Vercel)           │
-│  ┌─────────────────────────────────┐   │
-│  │   API Layer (Server Actions)    │   │
-│  │   • Bank CRUD                    │   │
-│  │   • Question CRUD                │   │
-│  │   • Import/Export                │   │
-│  └─────────────────────────────────┘   │
-└────────────────┬────────────────────────┘
-                 │
-                 │ Supabase Client
-                 │
-┌────────────────▼────────────────────────┐
-│         Supabase (Database)             │
-│  ┌─────────────────────────────────┐   │
-│  │   Postgres Tables                │   │
-│  │   • banks, questions             │   │
-│  │   • bank_snapshots, bank_shares  │   │
-│  └─────────────────────────────────┘   │
-│  ┌─────────────────────────────────┐   │
-│  │   Row-Level Security (RLS)      │   │
-│  │   • Share permissions            │   │
-│  │   • Anonymous access control     │   │
-│  └─────────────────────────────────┘   │
-└─────────────────────────────────────────┘
+```
+IDIDE Hub (Future)                     Quiz Editor Plugin (MVP)
+┌──────────────────────────┐          ┌───────────────────────────┐
+│  Central Graph           │          │  Local Storage            │
+│  ├── Artifacts (all)     │◄─────────│  ├── Projects             │
+│  ├── Links (all)         │  Fetch   │  ├── Artifacts (subset)   │
+│  └── Branches            │  Subgraph│  └── Auto-save            │
+│                          │          │                           │
+│  PR Review & Merge       │◄─────────│  Create PR when ready     │
+│  ├── Diff view           │   Push   │  ├── Changed artifacts    │
+│  ├── Validation          │  Changes │  └── New links            │
+│  └── Conflict resolution │          │                           │
+└──────────────────────────┘          └───────────────────────────┘
 ```
 
-### Data Flow
+### MVP Architecture (No Hub Yet)
 
-```bash
-User Action → Component → Zustand Store → Server Action → Supabase → RLS Check → Database
-                              ↓
-                        Optimistic Update
-                              ↓
-                        UI Updates Immediately
-                              ↓
-                        Server Confirms/Rejects
 ```
+Quiz Editor (Standalone)
+┌──────────────────────────────────────┐
+│  UI Layer (React + shadcn/ui)        │
+│  ├── Project List                    │
+│  ├── Bank List                       │
+│  └── Question Editor                 │
+│      ├── Tiptap (WYSIWYG)            │
+│      └── Answer/Feedback editors     │
+├──────────────────────────────────────┤
+│  State Layer (Zustand + Immer)       │
+│  ├── Current project/bank            │
+│  ├── Undo/redo history               │
+│  └── Auto-save logic                 │
+├──────────────────────────────────────┤
+│  Storage Layer                       │
+│  ├── SQLite (desktop)                │
+│  └── IndexedDB (web)                 │
+│      ├── Projects                    │
+│      ├── Artifacts (semantic types)  │
+│      └── Links (for future use)      │
+├──────────────────────────────────────┤
+│  Import/Export Layer                 │
+│  ├── Storyline CSV ↔ Artifacts       │
+│  └── JSON backup/restore             │
+└──────────────────────────────────────┘
+```
+
+---
+
+## Core Architectural Principles
+
+### 1. Semantic Artifact Typing
+
+**Principle**: Artifacts are typed by WHAT they are, not which tool created them.
+
+```typescript
+// ✅ Good (Semantic typing)
+interface Artifact {
+    id: string; // 'artifact:uuid'
+    type: 'question'; // Semantic type
+    schema_version: 'v1.0.0'; // Enables evolution
+    metadata: {
+        created_by: string;
+        created_at: string;
+        modified_at: string;
+    };
+    data: QuestionData; // Type-specific data
+}
+
+// ❌ Bad (Tool-specific typing)
+interface ToolSpecificArtifact {
+    id: string; // 'quiz-editor:question:uuid'
+    tool: 'quiz-editor'; // Couples data to tool
+    // ...
+}
+```
+
+**Why**: Multiple plugins can handle same types, user can switch tools, no vendor lock-in.
+
+**Example**: Quiz Editor Classic and SuperQuiz Pro both handle 'question' type → user can switch seamlessly.
+
+---
+
+### 2. Schema Versioning
+
+**Principle**: All artifact types have explicit schema versions.
+
+```typescript
+// Version 1.0.0
+interface QuestionV1 {
+    type: 'question';
+    schema_version: 'v1.0.0';
+    data: {
+        prompt: string; // Plain text
+        answers: Answer[];
+    };
+}
+
+// Version 2.0.0 (adds rich text)
+interface QuestionV2 {
+    type: 'question';
+    schema_version: 'v2.0.0';
+    data: {
+        prompt: TiptapJSON; // Rich text!
+        answers: Answer[];
+        metadata?: {
+            // New optional fields
+            difficulty?: 'easy' | 'medium' | 'hard';
+            estimated_time?: number;
+        };
+    };
+}
+```
+
+**Migration Strategy**:
+
+```typescript
+function migrateQuestion(artifact: Artifact): Artifact {
+    if (artifact.schema_version === 'v1.0.0') {
+        return {
+            ...artifact,
+            schema_version: 'v2.0.0',
+            data: {
+                prompt: textToTiptap(artifact.data.prompt),
+                answers: artifact.data.answers,
+            },
+        };
+    }
+    return artifact;
+}
+```
+
+**Why**: Enables evolution without breaking compatibility, plugins declare which versions they support.
+
+---
+
+### 3. Offline-First Storage
+
+**Principle**: Plugin works completely without network.
+
+```typescript
+// Storage interface (abstraction)
+interface StorageAdapter {
+    // Projects
+    getProjects(): Promise<Project[]>;
+    getProject(id: string): Promise<Project>;
+    saveProject(project: Project): Promise<void>;
+    deleteProject(id: string): Promise<void>;
+
+    // Artifacts
+    getArtifacts(projectId: string, type?: string): Promise<Artifact[]>;
+    getArtifact(id: string): Promise<Artifact>;
+    saveArtifact(artifact: Artifact): Promise<void>;
+    deleteArtifact(id: string): Promise<void>;
+
+    // Links (for future use)
+    getLinks(projectId: string): Promise<Link[]>;
+    saveLink(link: Link): Promise<void>;
+}
+
+// SQLite implementation (desktop)
+class SQLiteStorage implements StorageAdapter {
+    // Uses better-sqlite3
+}
+
+// IndexedDB implementation (web)
+class IndexedDBStorage implements StorageAdapter {
+    // Uses idb library
+}
+```
+
+**Why**: No server dependency, works on planes/trains/offline, simpler architecture.
+
+---
+
+### 4. Plugin Manifest
+
+**Principle**: Plugin declares capabilities explicitly.
+
+```typescript
+// plugin-manifest.json
+{
+  "name": "quiz-editor",
+  "version": "1.0.0",
+  "author": "Amos Glenn",
+  "description": "Create and edit quiz questions for instructional design",
+  
+  "handles": [
+    {
+      "type": "question",
+      "can_read": true,
+      "can_write": true,
+      "schema_versions": ["v1.0.0"]
+    },
+    {
+      "type": "question-bank",
+      "can_read": true,
+      "can_write": true,
+      "schema_versions": ["v1.0.0"]
+    }
+  ],
+  
+  "requires": {
+    "hub_api_version": "v1.0.0",  // Future: when hub exists
+    "platform": ["desktop", "web"]
+  },
+  
+  "exports": {
+    "formats": ["storyline-csv", "json"]
+  }
+}
+```
+
+**Why**: Hub knows what each plugin can do, users know plugin capabilities, developers have clear contract.
 
 ---
 
 ## Design Patterns
 
-### 1. Component Composition (shadcn Pattern)
+### 1. Tiptap JSON as Content Format
 
-**Principle**: Build from primitives, compose upward
-
-```typescript
-// Primitives (shadcn/ui)
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-
-// Composed Components
-function QuestionCard({ question, onEdit, onDelete }) {
-  return (
-    <Card>
-      <QuestionPrompt content={question.prompt} />
-      <AnswerList answers={question.answers} />
-      <CardFooter>
-        <Button onClick={onEdit}>Edit</Button>
-        <Button variant="destructive" onClick={onDelete}>Delete</Button>
-      </CardFooter>
-    </Card>
-  );
-}
-```
-
-**Why**: Reusability, consistency, easy to test
-
----
-
-### 2. Server Actions for Mutations
-
-**Principle**: No API routes—use Server Actions for all data mutations
+**Principle**: Store rich text as structured Tiptap JSON, not HTML strings.
 
 ```typescript
-// app/actions/banks.ts
-'use server';
-
-export async function createBank(data: {
-    title: string;
-    description?: string;
-}) {
-    const supabase = createClient();
-
-    const { data: bank, error } = await supabase
-        .from('banks')
-        .insert(data)
-        .select()
-        .single();
-
-    if (error) throw error;
-    revalidatePath('/banks');
-    return bank;
-}
-```
-
-**Why**: Type-safe, no boilerplate, automatic revalidation
-
----
-
-### 3. Optimistic UI Updates
-
-**Principle**: Update UI immediately, rollback on error
-
-```typescript
-// Zustand store
-updateQuestion: (id, updates) => {
-    set((state) => {
-        // Optimistic update
-        const question = state.questions.find((q) => q.id === id);
-        Object.assign(question, updates);
-    });
-
-    // Server sync (async)
-    saveQuestion(id, updates).catch(() => {
-        // Rollback on error
-        set((state) => {
-            const question = state.questions.find((q) => q.id === id);
-            Object.assign(question, previousState);
-        });
-    });
+// ✅ Good (Tiptap JSON)
+const prompt: TiptapJSON = {
+    type: 'doc',
+    content: [
+        {
+            type: 'paragraph',
+            content: [
+                { type: 'text', text: 'What is ' },
+                {
+                    type: 'text',
+                    text: 'photosynthesis',
+                    marks: [{ type: 'bold' }],
+                },
+                { type: 'text', text: '?' },
+            ],
+        },
+    ],
 };
+
+// ❌ Bad (HTML string)
+const prompt = '<p>What is <strong>photosynthesis</strong>?</p>';
 ```
 
-**Why**: Snappy UX, handles failures gracefully
+**Why**:
+
+- Structured (can query/transform)
+- Versionable (schema evolution)
+- Editor-agnostic (not tied to Tiptap)
+- Safer (no XSS from HTML parsing)
 
 ---
 
-### 4. Immutable Updates with Immer
+### 2. Zustand + Immer for State
 
-**Principle**: Write mutable code, get immutable updates
+**Principle**: Write mutable-looking code, get immutable updates.
 
 ```typescript
+import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 
-const useBankStore = create(
-    immer((set) => ({
-        bank: null,
+interface AppState {
+    currentProject: Project | null;
+    currentBank: Bank | null;
+    questions: Question[];
+    selectedQuestionId: string | null;
+
+    // Actions
+    loadBank: (bank: Bank) => void;
+    updateQuestion: (id: string, updates: Partial<Question>) => void;
+    addQuestion: (question: Question) => void;
+    deleteQuestion: (id: string) => void;
+}
+
+const useAppStore = create(
+    immer<AppState>((set) => ({
+        currentProject: null,
+        currentBank: null,
+        questions: [],
+        selectedQuestionId: null,
+
+        loadBank: (bank) =>
+            set((state) => {
+                state.currentBank = bank;
+                state.questions = bank.questions;
+            }),
+
         updateQuestion: (id, updates) =>
             set((state) => {
-                const question = state.bank.questions.find((q) => q.id === id);
-                question.prompt = updates.prompt; // Looks mutable, actually creates new object
+                const question = state.questions.find((q) => q.id === id);
+                if (question) {
+                    Object.assign(question, updates); // Looks mutable!
+                }
+            }),
+
+        addQuestion: (question) =>
+            set((state) => {
+                state.questions.push(question); // Looks mutable!
+            }),
+
+        deleteQuestion: (id) =>
+            set((state) => {
+                state.questions = state.questions.filter((q) => q.id !== id);
             }),
     }))
 );
 ```
 
-**Why**: Simpler code, automatic structural sharing, easier undo/redo
+**Why**: Simpler than Redux, automatic structural sharing, easier undo/redo.
 
 ---
 
-### 5. Tiptap JSON as Content Format
+### 3. Undo/Redo with Snapshots
 
-**Principle**: Store rich text as Tiptap JSON, not HTML
+**Principle**: Store serialized state snapshots for undo/redo.
 
 ```typescript
-// Good (Tiptap JSON)
-{
-  type: 'doc',
-  content: [
-    {
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: 'Hello ' },
-        { type: 'text', text: 'world', marks: [{ type: 'bold' }] }
-      ]
-    }
-  ]
+interface UndoableState extends AppState {
+    history: string[]; // Serialized snapshots
+    historyIndex: number;
+
+    // Undo/redo actions
+    undo: () => void;
+    redo: () => void;
+    pushHistory: () => void;
 }
 
-// Bad (HTML string)
-"<p>Hello <strong>world</strong></p>"
+const useAppStore = create(
+    immer<UndoableState>((set, get) => ({
+        // ... existing state
+
+        history: [],
+        historyIndex: -1,
+
+        pushHistory: () =>
+            set((state) => {
+                // Serialize current state
+                const snapshot = JSON.stringify({
+                    questions: state.questions,
+                    currentBank: state.currentBank,
+                });
+
+                // Trim future history if not at end
+                state.history = state.history.slice(0, state.historyIndex + 1);
+
+                // Add new snapshot
+                state.history.push(snapshot);
+                state.historyIndex = state.history.length - 1;
+
+                // Limit history size
+                if (state.history.length > 50) {
+                    state.history.shift();
+                    state.historyIndex--;
+                }
+            }),
+
+        undo: () =>
+            set((state) => {
+                if (state.historyIndex > 0) {
+                    state.historyIndex--;
+                    const snapshot = JSON.parse(state.history[state.historyIndex]);
+                    state.questions = snapshot.questions;
+                    state.currentBank = snapshot.currentBank;
+                }
+            }),
+
+        redo: () =>
+            set((state) => {
+                if (state.historyIndex < state.history.length - 1) {
+                    state.historyIndex++;
+                    const snapshot = JSON.parse(state.history[state.historyIndex]);
+                    state.questions = snapshot.questions;
+                    state.currentBank = snapshot.currentBank;
+                }
+            }),
+    }))
+);
 ```
 
-**Why**: Structured, versionable, editor-agnostic, easier to transform
+**Why**: Simple to implement, works with any state shape, memory efficient (only store diffs later).
 
 ---
 
-### 6. UUID Share Tokens for Anonymous Access
+### 4. Auto-Save with Debouncing
 
-**Principle**: Use unguessable UUIDs, not sequential IDs
+**Principle**: Save frequently but not on every keystroke.
 
-```sql
-CREATE TABLE banks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  share_token UUID UNIQUE DEFAULT gen_random_uuid()
-);
+```typescript
+import { useEffect, useMemo } from 'react';
+import { debounce } from 'lodash-es';
 
--- Share URL: /banks/share/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+function BankEditor() {
+    const { currentBank, questions } = useAppStore();
+
+    // Debounced save function
+    const debouncedSave = useMemo(
+        () =>
+            debounce(async (bank: Bank) => {
+                await storage.saveArtifact({
+                    id: bank.id,
+                    type: 'question-bank',
+                    schema_version: 'v1.0.0',
+                    data: bank,
+                });
+
+                // Save all questions
+                for (const question of bank.questions) {
+                    await storage.saveArtifact({
+                        id: question.id,
+                        type: 'question',
+                        schema_version: 'v1.0.0',
+                        data: question,
+                    });
+                }
+
+                toast.success('Saved');
+            }, 3000), // Wait 3s after last change
+        []
+    );
+
+    // Trigger save when state changes
+    useEffect(() => {
+        if (currentBank) {
+            debouncedSave(currentBank);
+        }
+    }, [currentBank, questions]);
+
+    return <div>...</div>;
+}
 ```
 
-**Why**: Security through obscurity (128-bit entropy), no enumeration attacks
+**Why**: Responsive UX (no lag), prevents data loss, reduces storage writes.
+
+---
+
+### 5. Storyline Import/Export
+
+**Principle**: Convert between internal format and Storyline CSV.
+
+```typescript
+// Import: Storyline CSV → Artifacts
+async function importStorylineCSV(file: File): Promise<Artifact[]> {
+    const text = await file.text();
+    const { data } = Papa.parse(text, {
+        header: true,
+        skipEmptyLines: true,
+    });
+
+    return data.map((row: any) => ({
+        id: `artifact:${crypto.randomUUID()}`,
+        type: 'question',
+        schema_version: 'v1.0.0',
+        metadata: {
+            created_by: 'import',
+            created_at: new Date().toISOString(),
+            modified_at: new Date().toISOString(),
+        },
+        data: {
+            prompt: textToTiptap(row.Question),
+            answers: extractAnswers(row),
+            feedback: {
+                correct: textToTiptap(row.CorrectFeedback),
+                incorrect: textToTiptap(row.IncorrectFeedback),
+            },
+            settings: {},
+        },
+    }));
+}
+
+// Export: Artifacts → Storyline CSV
+function exportToStorylineCSV(questions: Artifact[]): string {
+    const rows = questions.map((q) => ({
+        Type: mapTypeToStoryline(q.data.type),
+        Question: tiptapToText(q.data.prompt),
+        Answer1: tiptapToText(q.data.answers[0]?.text),
+        Answer2: tiptapToText(q.data.answers[1]?.text),
+        Answer3: tiptapToText(q.data.answers[2]?.text),
+        Answer4: tiptapToText(q.data.answers[3]?.text),
+        CorrectAnswer: getCorrectAnswerNumbers(q.data.answers),
+        CorrectFeedback: tiptapToText(q.data.feedback.correct),
+        IncorrectFeedback: tiptapToText(q.data.feedback.incorrect),
+    }));
+
+    return Papa.unparse(rows);
+}
+
+// Helpers
+function textToTiptap(text: string): TiptapJSON {
+    return {
+        type: 'doc',
+        content: [
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text }],
+            },
+        ],
+    };
+}
+
+function tiptapToText(json: TiptapJSON): string {
+    // Extract plain text from Tiptap JSON (strip formatting)
+    return json.content
+        .map((node) =>
+            node.content?.map((c) => c.text || '').join('') || ''
+        )
+        .join('\n');
+}
+```
+
+**Why**: Interoperability with Storyline 360 is critical, lossy conversion acceptable for MVP.
 
 ---
 
@@ -227,386 +528,246 @@ CREATE TABLE banks (
 
 ### TypeScript
 
-- ✅ Strict mode enabled (`"strict": true`)
-- ✅ No `any` types (use `unknown` if necessary)
-- ✅ Explicit return types for functions
-- ✅ Zod for runtime validation
+```typescript
+// ✅ Good (strict typing)
+interface Question {
+    id: string;
+    prompt: TiptapJSON;
+    answers: Answer[];
+    feedback: Feedback;
+}
 
-### React
+function updateQuestion(id: string, updates: Partial<Question>): void {
+    // Implementation
+}
 
-- ✅ Functional components only (no classes)
-- ✅ Hooks for state/effects
-- ✅ Server Components by default (`'use client'` only when needed)
-- ✅ Co-locate state with components (avoid prop drilling)
+// ❌ Bad (any types)
+function updateQuestion(id: any, updates: any): any {
+    // Don't do this
+}
+```
 
-### Styling
+### React Components
 
-- ✅ Tailwind utility classes (no custom CSS unless necessary)
-- ✅ shadcn/ui for base components
-- ✅ Consistent spacing scale (4px increments)
-- ✅ Mobile-first responsive design
+```typescript
+// ✅ Good (functional, typed props)
+interface QuestionEditorProps {
+    question: Question;
+    onUpdate: (updates: Partial<Question>) => void;
+}
+
+function QuestionEditor({ question, onUpdate }: QuestionEditorProps) {
+    const [localPrompt, setLocalPrompt] = useState(question.prompt);
+
+    return <div>...</div>;
+}
+
+// ❌ Bad (class components)
+class QuestionEditor extends React.Component {
+    // Don't use classes
+}
+```
+
+### Styling (Tailwind)
+
+```typescript
+// ✅ Good (utility classes)
+<Card className="p-6 hover:shadow-lg transition-shadow">
+  <CardTitle className="text-2xl font-bold mb-4">
+    {bank.title}
+  </CardTitle>
+</Card>
+
+// ❌ Bad (inline styles)
+<Card style={{ padding: '24px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+  <CardTitle style={{ fontSize: '24px', fontWeight: 'bold' }}>
+    {bank.title}
+  </CardTitle>
+</Card>
+```
 
 ### File Structure
 
 ```
 src/
-├── app/                  # Next.js App Router pages
-│   ├── layout.tsx
-│   ├── page.tsx
-│   └── banks/
-│       ├── page.tsx      # Bank list
-│       ├── [id]/
-│       │   └── page.tsx  # Bank view
-│       └── [id]/edit/
-│           └── page.tsx  # Bank editor
+├── app/                      # Pages (if using Next.js)
+│   ├── page.tsx              # Home / Project list
+│   ├── [projectId]/
+│   │   └── page.tsx          # Bank list
+│   └── [projectId]/[bankId]/
+│       └── page.tsx          # Bank editor
 ├── components/
-│   ├── ui/               # shadcn primitives
-│   └── banks/            # Domain components
-│       ├── BankCard.tsx
-│       └── QuestionEditor.tsx
+│   ├── ui/                   # shadcn primitives
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   └── ...
+│   ├── project/              # Project components
+│   │   ├── ProjectList.tsx
+│   │   └── ProjectCard.tsx
+│   ├── bank/                 # Bank components
+│   │   ├── BankList.tsx
+│   │   └── BankCard.tsx
+│   └── question/             # Question components
+│       ├── QuestionEditor.tsx
+│       ├── PromptEditor.tsx
+│       ├── AnswerList.tsx
+│       └── FeedbackEditor.tsx
 ├── lib/
-│   ├── supabase.ts       # Supabase client
-│   ├── utils.ts          # Utilities
-│   └── validations.ts    # Zod schemas
+│   ├── storage/              # Storage adapters
+│   │   ├── interface.ts      # StorageAdapter interface
+│   │   ├── sqlite.ts         # SQLite implementation
+│   │   └── indexeddb.ts      # IndexedDB implementation
+│   ├── import-export/        # Storyline conversion
+│   │   ├── import.ts
+│   │   └── export.ts
+│   ├── utils.ts              # General utilities
+│   └── validations.ts        # Zod schemas
+├── store/
+│   └── app-store.ts          # Zustand store
 └── types/
-    ├── database.ts       # Supabase types
-    └── question.ts       # Domain types
+    ├── artifact.ts           # Artifact types
+    ├── question.ts           # Question types
+    └── plugin.ts             # Plugin manifest types
 ```
-
-### Git
-
-- ✅ Conventional Commits (`feat:`, `fix:`, `refactor:`, etc.)
-- ✅ Descriptive commit bodies (why, not what)
-- ✅ Branch per phase (`phase-1-foundation`, `phase-2-banks`)
-- ✅ Squash merge to main (clean history)
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### ❌ Don't Use API Routes for Mutations
+### ❌ Don't Store Tool Identity in Artifacts
 
 ```typescript
-// Bad
-export async function POST(request: Request) {
-    const data = await request.json();
-    // ...
+// Bad (couples artifact to tool)
+{
+  id: 'quiz-editor:question:uuid',
+  created_by_tool: 'quiz-editor'
 }
 
-// Good
-('use server');
-export async function createBank(data: BankInput) {
-    // ...
+// Good (tool-agnostic)
+{
+  id: 'artifact:uuid',
+  type: 'question'
 }
 ```
 
-### ❌ Don't Store HTML Strings
+### ❌ Don't Use HTML Strings
 
 ```typescript
 // Bad
-question.prompt = '<p>What is 2+2?</p>';
+question.prompt = '<p>What is <strong>2+2</strong>?</p>';
 
 // Good
 question.prompt = {
     type: 'doc',
     content: [
-        {
-            type: 'paragraph',
-            content: [{ type: 'text', text: 'What is 2+2?' }],
-        },
+        /* Tiptap JSON */
     ],
 };
 ```
 
-### ❌ Don't Bypass RLS Policies
+### ❌ Don't Skip Schema Versions
 
 ```typescript
-// Bad (service role key in client)
-const supabase = createClient(serviceRoleKey);
+// Bad (no version)
+{
+  id: 'artifact:uuid',
+  type: 'question',
+  data: { ... }
+}
 
-// Good (anon key, RLS enforces permissions)
-const supabase = createClient(anonKey);
-```
-
-### ❌ Don't Hardcode UUIDs
-
-```typescript
-// Bad
-const bankId = '12345678-1234-1234-1234-123456789012';
-
-// Good
-const bankId = crypto.randomUUID();
-```
-
----
-
-## Supabase Patterns
-
-### Client Creation
-
-```typescript
-// Server Component
-import { createClient } from '@/lib/supabase/server';
-const supabase = createClient();
-
-// Client Component
-import { createClient } from '@/lib/supabase/client';
-const supabase = createClient();
-```
-
-### RLS Policy Pattern
-
-```sql
--- Template for table policies
-CREATE POLICY "policy_name"
-ON table_name
-FOR operation -- SELECT, INSERT, UPDATE, DELETE
-USING (
-  -- Condition for row visibility
-  auth.uid() = owner_id
-  OR share_token IS NOT NULL
-);
-```
-
-### Realtime Subscriptions (Future)
-
-```typescript
-useEffect(() => {
-    const channel = supabase
-        .channel(`bank:${bankId}`)
-        .on(
-            'postgres_changes',
-            {
-                event: '*',
-                schema: 'public',
-                table: 'questions',
-                filter: `bank_id=eq.${bankId}`,
-            },
-            (payload) => {
-                // Update local state
-            }
-        )
-        .subscribe();
-
-    return () => supabase.removeChannel(channel);
-}, [bankId]);
-```
-
----
-
-## Migration Patterns
-
-### Schema Changes
-
-```sql
--- Always reversible
-ALTER TABLE questions ADD COLUMN group_id UUID REFERENCES question_groups(id);
-
--- Rollback
-ALTER TABLE questions DROP COLUMN group_id;
-```
-
-### Data Migrations
-
-```typescript
-// Migrate Tiptap v1 → v2 format
-const questions = await supabase.from('questions').select('*');
-
-for (const q of questions) {
-    const migratedPrompt = migrateTiptapJSON(q.prompt);
-    await supabase
-        .from('questions')
-        .update({ prompt: migratedPrompt })
-        .eq('id', q.id);
+// Good (explicit version)
+{
+  id: 'artifact:uuid',
+  type: 'question',
+  schema_version: 'v1.0.0',
+  data: { ... }
 }
 ```
 
----
-
-## Performance Patterns
-
-### Lazy Loading
+### ❌ Don't Hardcode Storage Implementation
 
 ```typescript
-// Load banks on demand
-const { data: banks } = await supabase
-    .from('banks')
-    .select('id, title, question_count')
-    .range(0, 19); // First 20 only
-```
+// Bad (tightly coupled)
+function saveQuestion(question: Question) {
+    const db = openDatabase();
+    db.insert('questions', question);
+}
 
-### Debounced Auto-Save
+// Good (abstracted)
+interface StorageAdapter {
+    saveArtifact(artifact: Artifact): Promise<void>;
+}
 
-```typescript
-const debouncedSave = useMemo(
-    () => debounce((bank) => saveBankSnapshot(bank), 30000),
-    []
-);
-
-useEffect(() => {
-    debouncedSave(bank);
-}, [bank]);
-```
-
-### Optimistic Reordering
-
-```typescript
-// Drag-and-drop question reordering
-const reorderQuestions = (fromIndex, toIndex) => {
-    set((state) => {
-        const [moved] = state.questions.splice(fromIndex, 1);
-        state.questions.splice(toIndex, 0, moved);
-        // Update positions optimistically
-        state.questions.forEach((q, i) => (q.position = i));
+function saveQuestion(question: Question, storage: StorageAdapter) {
+    storage.saveArtifact({
+        id: question.id,
+        type: 'question',
+        data: question,
     });
-
-    // Sync to server (async)
-    updatePositions(questions).catch(rollback);
-};
-```
-
----
-
-## Security Patterns
-
-### Input Validation
-
-```typescript
-import { z } from 'zod';
-
-const BankSchema = z.object({
-    title: z.string().min(1).max(200),
-    description: z.string().max(1000).optional(),
-});
-
-export async function createBank(input: unknown) {
-    const data = BankSchema.parse(input); // Throws if invalid
-    // ...
 }
 ```
-
-### Rate Limiting (Future)
-
-```typescript
-// Vercel middleware
-export async function middleware(request: NextRequest) {
-    const ip = request.ip ?? 'anonymous';
-    const { success } = await ratelimit.limit(ip);
-
-    if (!success) {
-        return new Response('Too many requests', { status: 429 });
-    }
-
-    return NextResponse.next();
-}
-```
-
----
-
-## Testing Strategy (Future)
-
-### Unit Tests
-
-```typescript
-// Component tests (Vitest + Testing Library)
-test('QuestionEditor renders prompt', () => {
-  render(<QuestionEditor question={mockQuestion} />);
-  expect(screen.getByText('What is 2+2?')).toBeInTheDocument();
-});
-```
-
-### Integration Tests
-
-```typescript
-// Server Action tests
-test('createBank creates bank in database', async () => {
-    const bank = await createBank({ title: 'Test Bank' });
-    expect(bank.id).toBeDefined();
-    expect(bank.title).toBe('Test Bank');
-});
-```
-
-### E2E Tests (Playwright, Future)
-
-```typescript
-test('user can create and edit bank', async ({ page }) => {
-    await page.goto('/banks');
-    await page.click('text=Create Bank');
-    await page.fill('input[name="title"]', 'My Bank');
-    await page.click('text=Save');
-    await expect(page).toHaveURL(/\/banks\/[a-z0-9-]+/);
-});
-```
-
----
-
-## Deployment Patterns
-
-### Environment Variables
-
-```env
-# .env.local (development)
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ... # Server-only
-
-# Vercel (production)
-# Add same variables in Vercel dashboard
-```
-
-### Build Optimization
-
-```typescript
-// next.config.js
-module.exports = {
-    images: {
-        domains: ['xxx.supabase.co'], // Allow Supabase Storage images
-    },
-    experimental: {
-        serverActions: {
-            bodySizeLimit: '2mb', // For CSV imports
-        },
-    },
-};
-```
-
----
-
-## Lessons Learned (Will Update)
-
-### Decision: Table-Based Storage
-
-- **Why**: Need querying, RLS, real-time subscriptions
-- **Trade-off**: JSONB size limits (not an issue for this scale)
-- **Outcome**: Correct choice—fast to build, works well
-
-### Decision: Pessimistic Locking (MVP)
-
-- **Why**: Avoid concurrent edit conflicts without complex merge logic
-- **Trade-off**: Single editor at a time (less collaborative)
-- **Outcome**: TBD (will evaluate in MVP testing)
 
 ---
 
 ## Future Architectural Changes
 
-### When to Add Real-Time (Yjs)
+### When to Add Hub Integration
 
-- **Trigger**: Multiple users requesting simultaneous editing
-- **Effort**: High (WebSocket server, CRDT integration, conflict UI)
-- **Impact**: Major (changes state management, requires new infra)
+**Triggers**:
 
-### When to Migrate to Event Sourcing
+- Multiple users need to collaborate
+- Need version control (branching, PRs)
+- Want cross-tool provenance (question → objective → need)
+- Second plugin exists and needs shared data
 
-- **Trigger**: Need granular history ("who changed what when")
-- **Effort**: Medium (action logs, replay logic, migration script)
-- **Impact**: Medium (improves history, complicates queries)
+**Effort**: Medium (hub API, PR workflow UI, conflict resolution)
+**Impact**: High (enables full ecosystem)
 
-### When to Add Hybrid Storage (Metadata + Files)
+### When to Add Real-Time Collaboration
 
-- **Trigger**: Banks exceed 10K questions (JSONB limits)
-- **Effort**: Medium (file storage, sync logic, metadata table)
-- **Impact**: Low (most features still work, export changes)
+**Triggers**:
+
+- Users request simultaneous editing within branches
+- Need live cursors / presence indicators
+- Want Google Docs-style experience
+
+**Effort**: High (WebSocket server, Yjs integration, CRDT conflicts)
+**Impact**: Medium (nice-to-have, not essential)
+
+### When to Add Type Registry
+
+**Triggers**:
+
+- 10+ plugins with custom types
+- Type naming conflicts emerge
+- Need discoverability (search for types)
+
+**Effort**: Medium (registry API, UI, governance)
+**Impact**: Medium (standardization, reusability)
+
+---
+
+## Lessons Learned
+
+*(Will update as we build)*
+
+### Decision: Semantic Typing
+
+- **Why**: Prevents vendor lock-in, enables plugin competition
+- **Trade-off**: Plugins must agree on type schemas
+- **Outcome**: TBD (validate during MVP)
+
+### Decision: Offline-First
+
+- **Why**: Simpler architecture, works without network
+- **Trade-off**: No real-time collaboration, manual sync
+- **Outcome**: TBD (validate during MVP)
+
+### Decision: Local Storage Only
+
+- **Why**: No server = simpler MVP, faster launch
+- **Trade-off**: No sharing, no collaboration, no cloud backup
+- **Outcome**: TBD (can add hub later without migration)
 
 ---
 
