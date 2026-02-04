@@ -1,8 +1,8 @@
 # Session Log
 
 **Project**: Quiz Editor (IDIDE Ecosystem)  
-**Last Updated**: 2025-02-04  
-**Current Phase**: Pre-implementation (Cloud-First Strategy Finalized)
+**Last Updated**: 2026-02-04
+**Current Phase**: Phase 1, Week 1 (Foundation initialized)
 
 ---
 
@@ -20,26 +20,29 @@
 - ✅ Quiz Review plugin concept (web-only, SME feedback workflow)
 - ✅ Universal plugin architecture (code runs in both cloud and desktop)
 - ✅ All `.claude/` documentation updated
-- ✅ Ready to start Phase 1 implementation (Cloud MVP)
+- ✅ **Next.js 16.1.6 initialized** (App Router, Turbopack, React 19, TypeScript strict)
+- ✅ **Tailwind v4 + shadcn/ui v3.8.3** configured (button, card, dialog, input, label, textarea, sonner, dropdown-menu, separator)
+- ✅ **Semantic TypeScript types** created (`Artifact`, `TiptapJSON`, `QuestionArtifact`, `BankArtifact`, `Project`)
+- ✅ **Storage adapter interface** defined (`StorageAdapter` in `src/lib/storage/interface.ts`)
+- ✅ **Zustand + Immer store** set up (`src/store/app-store.ts`)
+- ✅ **All routes scaffolded**: `/`, `/projects`, `/projects/[projectId]`, `/projects/[projectId]/banks/[bankId]`, `/login`, `/signup`
+- ✅ **Build passes** — all routes compile and render
+- ✅ Committed as `2b1fc4c` on `main`
 
-### What's Next (Phase 1: Week 1-2)
+### What's Next (Phase 1: Week 1-2 remaining)
 
-**Foundation Setup:**
-- [ ] Initialize Next.js project (App Router, TypeScript strict)
-- [ ] Configure Tailwind CSS + shadcn/ui
-- [ ] Set up Supabase (Postgres + Auth)
+**Backend / Supabase:**
+- [ ] Set up Supabase project (Postgres + Auth)
 - [ ] Create database schema (projects, artifacts, links, users)
 - [ ] Set up RLS policies
+- [ ] Implement `SupabaseStorage` adapter (against `StorageAdapter` interface)
 - [ ] Deploy to Vercel (preview environment)
+
+**Authentication:**
+- [ ] Supabase Auth integration
 - [ ] Configure authentication (email/password, Google, GitHub)
 - [ ] Anonymous mode (no auth for free tier)
-
-**File Structure:**
-- [ ] Create app directory structure
-- [ ] Set up components folders (ui, project, bank, question)
-- [ ] Create storage adapter interface
-- [ ] Implement Supabase storage adapter
-- [ ] Set up Zustand store
+- [ ] Sign up / login page UI
 
 ### Active Strategy
 
@@ -98,6 +101,38 @@
 ---
 
 ## Session History
+
+### 2026-02-04 — Phase 1 Week 1: Foundation Initialized
+
+**Focus**: Set up the Next.js project and core architecture for the cloud MVP.
+
+**Accomplishments**:
+
+- Initialized Next.js 16.1.6 (App Router, Turbopack, React 19, TypeScript strict)
+- Configured Tailwind v4 + shadcn/ui v3.8.3 with 9 UI components
+- Created semantic TypeScript types (`Artifact`, `TiptapJSON`, `QuestionArtifact`, `BankArtifact`, `Project`)
+- Defined `StorageAdapter` interface for desktop-aware storage abstraction
+- Set up Zustand + Immer state store with project/bank/question actions
+- Scaffolded all 6 routes with route groups: `(auth)` and `(dashboard)`
+- Build passes cleanly, all routes compile and render
+- Committed as `2b1fc4c`
+
+**Key Decisions**:
+
+- Skipped React Compiler (not needed for MVP)
+- Used `sonner` instead of deprecated `toast` component
+- Next.js 16 dynamic params require `Promise`-based `await params` pattern
+- Kept placeholder pages minimal — real UI comes in later weeks
+
+**Next Steps**:
+
+1. Set up Supabase (Postgres + Auth)
+2. Create database schema and RLS policies
+3. Implement `SupabaseStorage` adapter
+4. Build authentication pages
+5. Deploy to Vercel preview
+
+---
 
 ### 2025-02-04 (Evening) — Dual Deployment Strategy Finalized
 
