@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/amosglenn/Dev/quiz-editor status)"
+    ]
+  }
+}
