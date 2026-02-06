@@ -28,21 +28,25 @@
 - ✅ **All routes scaffolded**: `/`, `/projects`, `/projects/[projectId]`, `/projects/[projectId]/banks/[bankId]`, `/login`, `/signup`
 - ✅ **Build passes** — all routes compile and render
 - ✅ Committed as `2b1fc4c` on `main`
+- ✅ **Supabase project created** and connected (`@supabase/supabase-js` + `@supabase/ssr`)
+- ✅ **Database migration** run — profiles, projects, project_collaborators, artifacts, artifact_links + RLS + triggers
+- ✅ **Supabase clients** created — browser (`client.ts`), server (`server.ts`), middleware (`middleware.ts`)
+- ✅ **Email/password auth** — login, signup, logout server actions + auth callback route
+- ✅ **Auth UI** — login/signup pages with forms, error/success display, cross-links
+- ✅ **Route protection** — dashboard layout redirects unauthenticated users to `/login`
+- ✅ **Dashboard header** — shows user email + sign out button
+- ✅ Committed as `ed3b690` on `main`
 
 ### What's Next (Phase 1: Week 1-2 remaining)
 
-**Backend / Supabase:**
-- [ ] Set up Supabase project (Postgres + Auth)
-- [ ] Create database schema (projects, artifacts, links, users)
-- [ ] Set up RLS policies
+**Backend:**
 - [ ] Implement `SupabaseStorage` adapter (against `StorageAdapter` interface)
 - [ ] Deploy to Vercel (preview environment)
 
-**Authentication:**
-- [ ] Supabase Auth integration
-- [ ] Configure authentication (email/password, Google, GitHub)
+**Authentication (enhancements):**
+- [ ] Google OAuth
+- [ ] GitHub OAuth
 - [ ] Anonymous mode (no auth for free tier)
-- [ ] Sign up / login page UI
 
 ### Active Strategy
 
@@ -102,7 +106,32 @@
 
 ## Session History
 
-### 2026-02-04 — Phase 1 Week 1: Foundation Initialized
+### 2026-02-04 (Session 2) — Supabase + Authentication
+
+**Focus**: Set up Supabase backend and email/password authentication flow.
+
+**Accomplishments**:
+
+- Installed `@supabase/supabase-js` + `@supabase/ssr`
+- Created Supabase project and connected via `.env.local`
+- Built browser, server, and middleware Supabase clients
+- Wrote and ran database migration: profiles, projects, project_collaborators, artifacts, artifact_links with full RLS policies and auto-triggers
+- Implemented auth server actions (login, signup, logout) using `useActionState` (React 19)
+- Built login and signup pages with shadcn/ui Card forms
+- Added `/auth/callback` route for email confirmation code exchange
+- Protected dashboard routes — layout checks `getUser()` and redirects to `/login`
+- Added user email display + sign out button to dashboard header
+- Committed as `ed3b690`
+
+**Next Steps**:
+
+1. Implement `SupabaseStorage` adapter
+2. Deploy to Vercel preview
+3. Add Google/GitHub OAuth (optional enhancement)
+
+---
+
+### 2026-02-04 (Session 1) — Phase 1 Week 1: Foundation Initialized
 
 **Focus**: Set up the Next.js project and core architecture for the cloud MVP.
 

@@ -6,7 +6,7 @@
  * changing any UI or business-logic code.
  */
 
-import type { Artifact, ArtifactLink, Project } from '@/types'
+import type { Artifact, ArtifactLink, Project } from '@/types/idide';
 
 export interface StorageAdapter {
   // --- Projects ---

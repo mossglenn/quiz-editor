@@ -913,6 +913,112 @@ class StorageFactory {
 
 ---
 
+## Architectural Decisions
+
+### IDIDE vs Quiz Editor Separation Strategy
+
+**Decision Date**: 2025-02-05  
+**Status**: Accepted - Option 3 (Build Together, Refactor Later)
+
+#### Context
+
+Quiz Editor is being built as the first tool in the IDIDE ecosystem. This creates a tension between:
+1. Building Quiz Editor quickly to validate market fit
+2. Creating reusable IDIDE framework abstractions
+3. Avoiding premature abstraction that may be wrong
+
+Three options were considered:
+- **Option 1**: Monorepo with workspace separation (upfront complexity)
+- **Option 2**: Feature flags/namespacing (compromise approach)
+- **Option 3**: Build together with intention, refactor when building tool #2
+
+#### Decision
+
+**We're using Option 3: Build Quiz Editor with IDIDE concepts embedded, accept intentional technical debt.**
+
+**Rationale:**
+1. We don't fully know what IDIDE needs to be yet - building abstractions before we need them often creates wrong abstractions
+2. Quiz Editor is our learning ground - we'll discover patterns worth generalizing only by solving real problems first
+3. The refactor trigger is clear: when we build tool #2, we'll know what's truly shared vs Quiz Editor-specific
+4. This keeps velocity high during validation phase
+
+#### Implementation Guidelines
+
+**Naming Conventions:**
+- Use specific names: `QuizBank` not `Bank`, `QuizQuestion` not `Question`
+- Mark IDIDE candidates with comments: `// TODO: IDIDE candidate`
+- Keep feature folders separate:
+  - `/features/quiz-editor/` for tool-specific code
+  - `/features/idide-core/` for framework-level code
+
+**Known Coupling Points to Untangle Later:**
+
+1. **Database Schema**
+   - Current: `banks` and `questions` tables are Quiz Editor-specific
+   - Future: Need generic `artifacts` table with type discrimination
+   - Current schema in `projects`, `artifacts`, `artifact_links` is already generic
+
+2. **Component Architecture**
+   - Current: Bank components contain Quiz Editor logic
+   - Future: Extract `Workspace`, `ArtifactList`, `ArtifactEditor` base components
+   - Quiz Editor components should extend/compose these
+
+3. **Type System**
+   - Current: Types mix Quiz Editor domain with IDIDE framework
+   - Future: Separate `types/quiz-editor/` from `types/idide/`
+   - Already using `Artifact` interface pattern correctly
+
+4. **Storage Layer**
+   - Current: Storage adapter pattern is framework-ready (good!)
+   - Future: Ensure Quiz Editor uses it consistently
+   - No refactor needed here - this is already IDIDE-aware
+
+5. **Routing**
+   - Current: `/banks/[id]` routes are Quiz Editor-specific
+   - Future: Move to `/tools/quiz-editor/banks/[id]`
+   - Keep root project routes generic
+
+#### Refactor Trigger
+
+**When we start building tool #2**, pause and execute separation:
+
+1. **Extract IDIDE Framework**
+   - Create `@idide/core` package (or equivalent)
+   - Move workspace, sharing, auth, base components
+   - Define plugin interface
+
+2. **Migrate Quiz Editor**
+   - Move to `@idide/plugin-quiz-editor` package
+   - Update imports to use framework
+   - Ensure tool-specific code stays contained
+
+3. **Database Migration**
+   - Create migration scripts for schema changes
+   - Ensure backward compatibility
+   - Test with real user data
+
+4. **Update Documentation**
+   - Document plugin architecture
+   - Create plugin developer guide
+   - Update deployment docs
+
+#### Success Criteria
+
+This approach is successful if:
+- ✅ Quiz Editor MVP ships quickly (Phase 1 timeline maintained)
+- ✅ We learn what IDIDE actually needs from real usage
+- ✅ Refactor scope is clear before we start (documented coupling points)
+- ✅ Tool #2 development informs better abstractions
+- ✅ We avoid rewriting large portions due to wrong abstractions
+
+#### Review Points
+
+- **After Phase 1 Launch**: Review lessons learned, document additional coupling points
+- **Before Tool #2 Planning**: Evaluate whether to refactor now or build tool #2 inside same structure
+- **After Tool #2 Prototype**: Execute separation if patterns are clear
+
+---
+
 ## References
 
 ### Documentation
