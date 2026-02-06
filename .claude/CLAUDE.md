@@ -526,6 +526,26 @@ function tiptapToText(json: TiptapJSON): string {
 
 ## Coding Conventions
 
+**IMPORTANT: All code should include JSDoc documentation. See PROJECT_CONTEXT.md § Documentation Standards for complete guidelines.**
+
+### Documentation-First Approach
+
+Write JSDoc documentation **as you create code**, not as an afterthought:
+
+```typescript
+/**
+ * Update a question's data fields.
+ * Automatically updates metadata.modified_at timestamp.
+ * 
+ * @param id - ID of question to update
+ * @param updates - Partial question data to merge
+ * 
+ * @example
+ * updateQuestion(questionId, { prompt: newPrompt });
+ */
+updateQuestion: (id: string, updates: Partial<QuizQuestion['data']>) => void;
+```
+
 ### TypeScript
 
 ```typescript

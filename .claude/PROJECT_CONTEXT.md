@@ -1052,6 +1052,221 @@ This approach is successful if:
 - **Zod** for validation
 - **Conventional commits** (`feat:`, `fix:`, `refactor:`)
 
+### Documentation Standards
+
+**CRITICAL: Write JSDoc documentation as you code, not as an afterthought.**
+
+#### When to Write JSDoc
+
+**ALWAYS document when creating:**
+- Type definitions (interfaces, types, enums)
+- Functions and methods (especially public APIs)
+- Store state and actions
+- React components with complex props
+- Utility functions used across the codebase
+- Storage adapters and service layers
+
+**ALWAYS update documentation when editing:**
+- If you change a function signature, update its JSDoc
+- If you modify interface properties, update property descriptions
+- If you change behavior, update examples and descriptions
+- Keep documentation in sync with code changes
+
+#### JSDoc Style Guide
+
+**Module Headers:**
+```typescript
+/**
+ * Quiz Editor State Store
+ * 
+ * Manages state specific to the Quiz Editor tool/plugin.
+ * Handles banks, questions, and question editing workflow.
+ * 
+ * @module store/quiz-editor-store
+ * @category Quiz Editor Plugin
+ */
+```
+
+**Interface Documentation:**
+```typescript
+/**
+ * Quiz question artifact with prompt, answers, and feedback.
+ * 
+ * Extends the base Artifact interface with quiz-specific data.
+ * Stored in artifacts table with type='quiz-question'.
+ * 
+ * @example
+ * const question: QuizQuestion = {
+ *   id: crypto.randomUUID(),
+ *   project_id: projectId,
+ *   type: 'quiz-question',
+ *   schema_version: '1.0.0',
+ *   metadata: { ... },
+ *   data: {
+ *     question_type: 'multiple_choice',
+ *     prompt: { type: 'doc', content: [] },
+ *     answers: [],
+ *     feedback: { correct: {...}, incorrect: {...} },
+ *     settings: {}
+ *   }
+ * };
+ */
+export interface QuizQuestion extends Artifact {
+    type: 'quiz-question';
+    data: QuizQuestionData;
+}
+```
+
+**Property Documentation:**
+```typescript
+/**
+ * Unique identifier for this artifact.
+ * 
+ * Format: UUID v4
+ * Generated using: crypto.randomUUID()
+ */
+id: UUID;
+
+/**
+ * Currently active quiz bank being edited.
+ * Null when no bank is selected (e.g., on bank list page).
+ * 
+ * When a bank is selected:
+ * - questions[] should contain that bank's questions
+ * - Tools operate within this bank's scope
+ */
+currentBank: QuizBank | null;
+```
+
+**Function Documentation:**
+```typescript
+/**
+ * Update a question's data fields.
+ * Automatically updates metadata.modified_at timestamp.
+ * 
+ * This is for in-memory updates during editing.
+ * Caller is responsible for persisting to storage adapter.
+ * 
+ * @param id - ID of question to update
+ * @param updates - Partial question data to merge
+ * 
+ * @example
+ * // Update question prompt
+ * const { updateQuestion } = useQuizEditorStore();
+ * updateQuestion(questionId, {
+ *   prompt: newTiptapJSON
+ * });
+ * 
+ * @example
+ * // Update answer correctness
+ * updateQuestion(questionId, {
+ *   answers: updatedAnswersArray
+ * });
+ */
+updateQuestion: (id: string, updates: Partial<QuizQuestion['data']>) => void;
+```
+
+**Component Documentation:**
+```typescript
+/**
+ * Question editor component with Tiptap WYSIWYG editing.
+ * 
+ * Handles editing of question prompt, answers, and feedback.
+ * Changes are auto-saved via the quiz-editor store.
+ * 
+ * @param props - Component props
+ * @param props.questionId - ID of question to edit
+ * @param props.onSave - Optional callback when question is saved
+ * 
+ * @example
+ * <QuestionEditor 
+ *   questionId={selectedQuestionId}
+ *   onSave={() => toast.success('Saved')}
+ * />
+ */
+export function QuestionEditor({ 
+  questionId, 
+  onSave 
+}: QuestionEditorProps) {
+  // Implementation
+}
+```
+
+#### Documentation Quality Standards
+
+**Good Documentation:**
+- ✅ Explains WHY, not just WHAT
+- ✅ Includes practical examples
+- ✅ Notes caller responsibilities
+- ✅ Warns about edge cases
+- ✅ Shows integration patterns
+- ✅ Mentions related functions/types
+
+**Bad Documentation:**
+- ❌ Just repeats the function name
+- ❌ No examples
+- ❌ Doesn't explain parameters
+- ❌ Ignores edge cases
+- ❌ Out of sync with code
+
+**Example of Bad Documentation:**
+```typescript
+/**
+ * Updates a question
+ */
+updateQuestion: (id: string, updates: any) => void;
+```
+
+**Example of Good Documentation:**
+```typescript
+/**
+ * Update a question's data fields.
+ * Automatically updates metadata.modified_at timestamp.
+ * 
+ * This is for in-memory updates during editing.
+ * Caller is responsible for persisting to storage adapter.
+ * 
+ * @param id - ID of question to update
+ * @param updates - Partial question data to merge
+ * 
+ * @example
+ * const { updateQuestion } = useQuizEditorStore();
+ * updateQuestion(questionId, { prompt: newPrompt });
+ */
+updateQuestion: (id: string, updates: Partial<QuizQuestion['data']>) => void;
+```
+
+#### Benefits of Good Documentation
+
+1. **IDE Integration** - Hover tooltips show documentation
+2. **Self-Documenting Code** - Reduces need for external docs
+3. **Onboarding** - New developers understand code faster
+4. **Maintenance** - Future you remembers why decisions were made
+5. **Claude Code** - AI understands your intentions better
+6. **Type Safety** - JSDoc provides additional type information
+
+#### Documentation Workflow
+
+**When Creating New Code:**
+1. Write the type/function signature
+2. Write the JSDoc IMMEDIATELY (while context is fresh)
+3. Include at least one example
+4. Note any edge cases or gotchas
+5. Then implement the function
+
+**When Editing Existing Code:**
+1. Read the existing JSDoc
+2. Update JSDoc to match new behavior
+3. Add new examples if behavior changed significantly
+4. Update parameter descriptions if signature changed
+5. Then modify the implementation
+
+**Never:**
+- ❌ Commit code without documentation
+- ❌ Leave TODOs in documentation indefinitely
+- ❌ Copy-paste documentation without updating it
+- ❌ Document obvious getters/setters unless they have side effects
+
 ### Testing Strategy
 
 - **Manual testing** for MVP (no automated tests yet)
