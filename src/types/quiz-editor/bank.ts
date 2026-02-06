@@ -2,7 +2,7 @@
  * Question bank type for the Quiz Editor plugin.
  */
 
-import type { UUID, Artifact } from '../idide/';
+import type { UUID, Artifact } from '../core/';
 
 export interface QuizBankSettings {
     passing_grade?: number;

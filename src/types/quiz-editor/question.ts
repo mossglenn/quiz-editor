@@ -5,7 +5,7 @@
  * TODO: When building tool #2, these patterns inform what becomes framework-level
  */
 
-import type { UUID, Artifact, TiptapJSON } from '../idide/';
+import type { UUID, Artifact, TiptapJSON } from '../core/';
 
 /**
  * Available question formats for Quiz Editor.

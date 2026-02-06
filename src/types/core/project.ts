@@ -1,6 +1,6 @@
 /**
- * Universal project type for IDIDE ecosystem.
- * This is the foundational type.
+ * Universal project type for the Core Framework.
+ * This is the foundational type for all projects.
  */
 
 import type { UUID, ISODateTime } from './common';

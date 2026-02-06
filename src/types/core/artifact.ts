@@ -1,5 +1,5 @@
 /**
- * Universal artifact types for the IDIDE ecosystem.
+ * Universal artifact types for the Core Framework.
  * Artifacts are typed semantically (by WHAT they are, not which tool created them).
  */
 

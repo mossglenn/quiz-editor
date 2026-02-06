@@ -1,6 +1,5 @@
 /**
- * Universal artifact link type for the IDIDE ecosystem.
- *
+ * Universal artifact link type for the Core Framework.
  */
 
 import type { UUID, ISODateTime } from './common';

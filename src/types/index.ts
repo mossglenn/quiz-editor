@@ -6,7 +6,7 @@ export type {
     Artifact,
     LinkRelationship,
     ArtifactLink,
-} from './idide/index';
+} from './core/index';
 
 export type {
     QuizBank,
